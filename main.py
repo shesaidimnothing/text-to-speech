@@ -3,10 +3,12 @@ Main application entry point for Real-Time Audio Transcription & AI Assistant.
 """
 
 import sys
+import os
 import json
 import logging
 import threading
 import queue
+import platform
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -51,6 +53,7 @@ class TranscriptionApp(ctk.CTk):
         self.transcription_engine: Optional[TranscriptionEngine] = None
         self.question_detector: Optional[QuestionDetector] = None
         self.answer_generator: Optional[AnswerGenerator] = None
+        self.tray_icon = None  # Initialize tray_icon to None
         
         # State
         self.is_recording = False
@@ -59,7 +62,12 @@ class TranscriptionApp(ctk.CTk):
         
         # Setup UI
         self.setup_ui()
-        self.setup_system_tray()
+        # Setup system tray (may fail on some systems - that's OK)
+        try:
+            self.setup_system_tray()
+        except Exception as e:
+            logger.warning(f"System tray setup failed (non-critical): {e}")
+            self.tray_icon = None
         self.setup_keyboard_shortcuts()
         
         # Check Ollama on startup
@@ -70,6 +78,11 @@ class TranscriptionApp(ctk.CTk):
         
         # Handle window close
         self.protocol("WM_DELETE_WINDOW", self.on_closing)
+        
+        # Ensure window is visible on startup
+        self.deiconify()
+        self.lift()
+        self.focus()
     
     def load_config(self) -> dict:
         """Load configuration from file."""
@@ -318,31 +331,64 @@ class TranscriptionApp(ctk.CTk):
     
     def setup_system_tray(self):
         """Setup system tray icon."""
-        # Create icon
-        image = Image.new('RGB', (64, 64), color='black')
-        draw = ImageDraw.Draw(image)
-        draw.ellipse([16, 16, 48, 48], fill='blue', outline='white')
+        self.tray_icon = None
         
-        menu = pystray.Menu(
-            pystray.MenuItem("Show", self.show_window),
-            pystray.MenuItem("Hide", self.hide_window),
-            pystray.MenuItem("Quit", self.quit_app)
-        )
+        # On macOS, system tray can cause crashes - disable it by default
+        # Set DISABLE_SYSTEM_TRAY=0 to enable it
+        if platform.system() == 'Darwin' and os.environ.get('DISABLE_SYSTEM_TRAY', '1') == '1':
+            logger.debug("System tray disabled on macOS (set DISABLE_SYSTEM_TRAY=0 to enable)")
+            return
         
-        self.tray_icon = pystray.Icon("TranscriptionApp", image, "Audio Transcription", menu)
-        
-        # Start tray in separate thread
-        tray_thread = threading.Thread(target=self.tray_icon.run, daemon=True)
-        tray_thread.start()
+        try:
+            # On macOS, system tray can cause crashes if not properly configured
+            # Make it more robust by catching all exceptions
+            image = Image.new('RGB', (64, 64), color='black')
+            draw = ImageDraw.Draw(image)
+            draw.ellipse([16, 16, 48, 48], fill='blue', outline='white')
+            
+            menu = pystray.Menu(
+                pystray.MenuItem("Show", self.show_window),
+                pystray.MenuItem("Hide", self.hide_window),
+                pystray.MenuItem("Quit", self.quit_app)
+            )
+            
+            self.tray_icon = pystray.Icon("TranscriptionApp", image, "Audio Transcription", menu)
+            
+            # Start tray in separate thread with better error handling
+            def run_tray_safely():
+                try:
+                    self.tray_icon.run()
+                except Exception as e:
+                    logger.debug(f"System tray thread error (non-critical): {e}")
+            
+            tray_thread = threading.Thread(target=run_tray_safely, daemon=True)
+            tray_thread.start()
+            logger.debug("System tray icon initialized")
+        except Exception as e:
+            # System tray is optional - app works without it
+            # Don't log as warning since this is common on macOS
+            logger.debug(f"System tray disabled (non-critical): {e}")
+            self.tray_icon = None
     
     def setup_keyboard_shortcuts(self):
         """Setup global keyboard shortcuts."""
+        # On macOS, keyboard shortcuts require admin rights (sudo)
+        # The keyboard library starts a background thread that fails without admin rights
+        # and prints errors to stderr. We skip keyboard shortcuts on macOS by default
+        # to avoid these harmless but noisy errors.
+        # Users can still use the system tray icon to show/hide the window.
+        if platform.system() == 'Darwin':
+            # Skip keyboard shortcuts on macOS - they require admin rights
+            # The app works perfectly fine without them
+            logger.debug("Keyboard shortcuts skipped on macOS (requires admin rights)")
+            return
+        
+        # On Windows/Linux, try to enable shortcuts
         try:
             keyboard.add_hotkey('ctrl+shift+a', self.toggle_window_visibility)
             logger.info("Keyboard shortcuts enabled (Ctrl+Shift+A to show/hide)")
         except Exception as e:
-            logger.warning(f"Failed to setup keyboard shortcut (may require admin rights): {e}")
-            logger.info("Keyboard shortcuts disabled. You can still use the system tray icon.")
+            logger.debug(f"Keyboard shortcuts disabled: {e}")
     
     def check_ollama_status(self):
         """Check if Ollama is running."""
@@ -385,12 +431,15 @@ class TranscriptionApp(ctk.CTk):
                 )
             
             # Initialize audio capture with phrase-aware settings
+            # Allow device selection from config (None = auto-detect)
+            audio_device = self.config.get("audio_device_index", None)
             self.audio_capture = AudioCapture(
                 chunk_duration=self.config.get("audio_chunk_duration_seconds", 3.0),
                 callback=self.on_audio_chunk,
                 silence_threshold=self.config.get("silence_detection_threshold", 0.015),
                 min_silence_duration=self.config.get("min_silence_duration_seconds", 1.0),
-                max_buffer_duration=self.config.get("max_buffer_duration_seconds", 10.0)
+                max_buffer_duration=self.config.get("max_buffer_duration_seconds", 10.0),
+                device=audio_device
             )
             
             self.audio_capture.start()
@@ -474,16 +523,18 @@ class TranscriptionApp(ctk.CTk):
         # Check if audio has actual content (not silence)
         audio_level = np.abs(audio_data).mean() if hasattr(audio_data, 'mean') else 0
         if audio_level < 0.001:  # Very quiet, likely silence
-            logger.debug("Skipping silent audio chunk")
+            logger.debug(f"Skipping silent audio chunk (level: {audio_level:.6f})")
             return
+        
+        logger.debug(f"Processing audio chunk: {len(audio_data)} samples, level: {audio_level:.6f}")
         
         # Process in separate thread to avoid blocking
         def process():
             try:
-                logger.debug(f"Processing audio chunk, level: {audio_level:.4f}")
+                logger.info(f"Transcribing audio chunk: {len(audio_data)} samples, level: {audio_level:.6f}")
                 text = self.transcription_engine.transcribe_chunk(audio_data)
                 if text and text.strip():
-                    logger.info(f"Transcribed: {text[:50]}...")
+                    logger.info(f"✓ Transcribed: {text[:100]}...")
                     
                     # Check if text ends with sentence-ending punctuation
                     text_ends_with_sentence = self._ends_with_sentence(text)
@@ -500,6 +551,7 @@ class TranscriptionApp(ctk.CTk):
                         final_text = self._pending_transcription
                         self._pending_transcription = ""  # Clear buffer
                         
+                        logger.info(f"✓ Adding to UI: {final_text[:100]}...")
                         self.message_queue.put(("transcription", final_text))
                         
                         # Check for questions
@@ -516,7 +568,7 @@ class TranscriptionApp(ctk.CTk):
                         # Partial sentence - wait for more
                         logger.debug(f"Accumulating sentence: {self._pending_transcription[:50]}...")
                 else:
-                    logger.debug("No text transcribed from audio chunk")
+                    logger.debug(f"No text transcribed from audio chunk (text={text})")
             except Exception as e:
                 logger.error(f"Error processing audio chunk: {e}")
         
@@ -960,6 +1012,28 @@ class SettingsWindow(ctk.CTkToplevel):
 
 
 if __name__ == "__main__":
-    app = TranscriptionApp()
-    app.mainloop()
+    import traceback
+    try:
+        app = TranscriptionApp()
+        app.mainloop()
+    except KeyboardInterrupt:
+        print("\nApplication interrupted by user")
+        sys.exit(0)
+    except Exception as e:
+        logger.error(f"Application crashed: {e}")
+        logger.error(traceback.format_exc())
+        # Try to show error in a message box if possible
+        try:
+            import tkinter.messagebox as msgbox
+            root = tk.Tk()
+            root.withdraw()
+            msgbox.showerror(
+                "Application Error",
+                f"The application encountered an error:\n\n{type(e).__name__}: {e}\n\n"
+                "Check the console for full details."
+            )
+            root.destroy()
+        except:
+            pass
+        sys.exit(1)
 

@@ -1,10 +1,10 @@
 {
-  "whisper_model": "large",
+  "whisper_model": "base",
   "ollama_model": "llama3.2",
   "ollama_url": "http://localhost:11434",
   "auto_answer": true,
   "detection_sensitivity": 0.7,
-  "conversation_context_exchanges": 10,
+  "conversation_context_exchanges": 4,
   "transcription_buffer_minutes": 5,
   "audio_chunk_duration_seconds": 3,
   "silence_detection_threshold": 0.015,

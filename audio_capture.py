@@ -29,7 +29,8 @@ class AudioCapture:
                  callback: Optional[Callable] = None,
                  silence_threshold: float = 0.015,
                  min_silence_duration: float = 1.0,
-                 max_buffer_duration: float = 10.0):
+                 max_buffer_duration: float = 10.0,
+                 device: Optional[int] = None):
         """
         Initialize audio capture.
         
@@ -40,6 +41,7 @@ class AudioCapture:
             silence_threshold: Audio level threshold for silence detection (0.0-1.0)
             min_silence_duration: Minimum seconds of silence before processing a phrase
             max_buffer_duration: Maximum seconds to buffer before forcing processing
+            device: Optional device index to use. If None, will auto-detect loopback device.
         """
         self.target_sample_rate = sample_rate  # Target rate for Whisper (16000)
         self.chunk_duration = chunk_duration
@@ -53,10 +55,18 @@ class AudioCapture:
         self.audio_queue = queue.Queue()
         self.thread = None
         
-        # Find loopback device
-        self.device = self._find_loopback_device()
-        if self.device is None:
-            raise RuntimeError("No loopback audio device found. Please check your audio setup.")
+        # Find loopback device or use specified device
+        if device is not None:
+            self.device = device
+            devices = sd.query_devices()
+            if self.device < len(devices):
+                logger.info(f"Using specified device: {devices[self.device]['name']}")
+            else:
+                raise ValueError(f"Invalid device index: {device}")
+        else:
+            self.device = self._find_loopback_device()
+            if self.device is None:
+                raise RuntimeError("No loopback audio device found. Please check your audio setup.")
         
         # Get device's supported sample rate
         self.device_sample_rate = self._get_device_sample_rate()
@@ -85,9 +95,10 @@ class AudioCapture:
                                 device['max_input_channels'] > 0):
                                 device_name = device['name'].lower()
                                 
-                                # Check for BlackHole (macOS virtual audio driver)
+                                # Check for BlackHole or VB-Cable (macOS virtual audio drivers)
                                 if any(keyword in device_name for keyword in [
-                                    'blackhole', 'black hole', 'loopback'
+                                    'blackhole', 'black hole', 'loopback',
+                                    'vb-cable', 'vb cable', 'vbaudio', 'virtual cable'
                                 ]):
                                     loopback_candidates.append((device_idx, device))
                                 else:
