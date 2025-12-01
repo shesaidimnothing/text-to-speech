@@ -1,0 +1,19 @@
+{
+  "name": "text-to-speech-tests",
+  "version": "1.0.0",
+  "description": "Script de test pour l'application de transcription audio",
+  "main": "run_tests.js",
+  "scripts": {
+    "test": "node run_tests.js",
+    "test:question": "node run_tests.js test_question_detector.py",
+    "test:answer": "node run_tests.js test_answer_generator.py",
+    "test:transcription": "node run_tests.js test_transcription.py",
+    "test:audio": "node run_tests.js test_audio_capture.py"
+  },
+  "keywords": ["testing", "pytest", "python"],
+  "author": "",
+  "license": "ISC"
+}
+
+
+

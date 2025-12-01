@@ -38,6 +38,17 @@ logger = logging.getLogger(__name__)
 ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("blue")
 
+# Modern Apple-style colors
+APPLE_BG = "#1e1e1e"
+APPLE_FG = "#ffffff"
+APPLE_SECONDARY = "#2d2d2d"
+APPLE_ACCENT = "#007aff"
+APPLE_ACCENT_HOVER = "#0051d5"
+APPLE_TEXT_SECONDARY = "#8e8e93"
+APPLE_DIVIDER = "#38383a"
+APPLE_RED = "#ff3b30"
+APPLE_RED_HOVER = "#d70015"
+
 
 class TranscriptionApp(ctk.CTk):
     """Main application window."""
@@ -120,7 +131,7 @@ class TranscriptionApp(ctk.CTk):
             "conversation_context_exchanges": 3,
             "transcription_buffer_minutes": 5,
             "audio_chunk_duration_seconds": 3,
-            "window_geometry": {"width": 1000, "height": 700},
+            "window_geometry": {"width": 1600, "height": 1000},
             "theme": "dark"
         }
     
@@ -137,197 +148,349 @@ class TranscriptionApp(ctk.CTk):
     
     def setup_ui(self):
         """Setup the user interface."""
-        self.title("Real-Time Audio Transcription & AI Assistant")
+        self.title("Audio Transcription")
         
-        # Set window geometry
-        width = self.config.get("window_geometry", {}).get("width", 1000)
-        height = self.config.get("window_geometry", {}).get("height", 700)
-        self.geometry(f"{width}x{height}")
+        # Set window geometry - optimized for fullscreen/large displays
+        screen_width = self.winfo_screenwidth()
+        screen_height = self.winfo_screenheight()
         
-        # Main container
+        # Use 90% of screen size by default, or config value if set
+        default_width = int(screen_width * 0.9)
+        default_height = int(screen_height * 0.85)
+        
+        width = self.config.get("window_geometry", {}).get("width", default_width)
+        height = self.config.get("window_geometry", {}).get("height", default_height)
+        
+        # Center window on screen
+        x = (screen_width - width) // 2
+        y = (screen_height - height) // 2
+        
+        self.geometry(f"{width}x{height}+{x}+{y}")
+        
+        # Configure main container
         self.grid_columnconfigure(0, weight=1)
-        self.grid_rowconfigure(1, weight=1)
+        self.grid_rowconfigure(2, weight=1)  # Content area should expand
         
-        # Top bar with controls
-        self.top_frame = ctk.CTkFrame(self)
-        self.top_frame.grid(row=0, column=0, sticky="ew", padx=10, pady=10)
-        self.top_frame.grid_columnconfigure(1, weight=1)
+        # Header section with title and main control
+        header_frame = ctk.CTkFrame(self, fg_color="transparent")
+        header_frame.grid(row=0, column=0, sticky="ew", padx=50, pady=(40, 30))
+        header_frame.grid_columnconfigure(1, weight=1)
         
-        # Record button
+        # Left side - Title and quick stats
+        left_header = ctk.CTkFrame(header_frame, fg_color="transparent")
+        left_header.grid(row=0, column=0, sticky="w")
+        
+        title_label = ctk.CTkLabel(
+            left_header,
+            text="Audio Transcription",
+            font=ctk.CTkFont(size=36, weight="normal")
+        )
+        title_label.pack(anchor="w")
+        
+        # Quick stats
+        stats_frame = ctk.CTkFrame(left_header, fg_color="transparent")
+        stats_frame.pack(anchor="w", pady=(12, 0))
+        
+        self.stats_label = ctk.CTkLabel(
+            stats_frame,
+            text="0 transcriptions • 0 questions • 0 answers",
+            font=ctk.CTkFont(size=14),
+            text_color=APPLE_TEXT_SECONDARY
+        )
+        self.stats_label.pack(side="left", padx=(0, 20))
+        
+        # Recording time indicator
+        self.recording_time_label = ctk.CTkLabel(
+            stats_frame,
+            text="",
+            font=ctk.CTkFont(size=14, weight="bold"),
+            text_color=APPLE_ACCENT
+        )
+        self.recording_time_label.pack(side="left")
+        
+        # Right side - Main controls
+        right_header = ctk.CTkFrame(header_frame, fg_color="transparent")
+        right_header.grid(row=0, column=1, sticky="e")
+        
+        # Secondary header buttons
+        header_buttons = ctk.CTkFrame(right_header, fg_color="transparent")
+        header_buttons.pack(side="top", anchor="e", pady=(0, 15))
+        
+        ctk.CTkButton(
+            header_buttons,
+            text="New Session",
+            command=self.new_session,
+            width=140,
+            height=40,
+            font=ctk.CTkFont(size=14),
+            fg_color=APPLE_SECONDARY,
+            hover_color=APPLE_DIVIDER,
+            corner_radius=10
+        ).pack(side="left", padx=(0, 10))
+        
+        ctk.CTkButton(
+            header_buttons,
+            text="History",
+            command=self.show_history,
+            width=110,
+            height=40,
+            font=ctk.CTkFont(size=14),
+            fg_color=APPLE_SECONDARY,
+            hover_color=APPLE_DIVIDER,
+            corner_radius=10
+        ).pack(side="left", padx=(0, 10))
+        
+        ctk.CTkButton(
+            header_buttons,
+            text="Help",
+            command=self.show_help,
+            width=90,
+            height=40,
+            font=ctk.CTkFont(size=14),
+            fg_color=APPLE_SECONDARY,
+            hover_color=APPLE_DIVIDER,
+            corner_radius=10
+        ).pack(side="left")
+        
+        # Main record button - large and prominent
         self.record_button = ctk.CTkButton(
-            self.top_frame,
+            right_header,
             text="Start Recording",
             command=self.toggle_recording,
-            width=150,
-            height=40,
-            font=ctk.CTkFont(size=14, weight="bold")
+            width=220,
+            height=60,
+            font=ctk.CTkFont(size=18, weight="normal"),
+            fg_color=APPLE_ACCENT,
+            hover_color=APPLE_ACCENT_HOVER,
+            corner_radius=12
         )
-        self.record_button.grid(row=0, column=0, padx=10, pady=10)
+        self.record_button.pack(side="top", anchor="e")
         
-        # Status label
+        # Status indicator with audio level
+        status_container = ctk.CTkFrame(self, fg_color="transparent")
+        status_container.grid(row=1, column=0, sticky="ew", padx=50, pady=(0, 25))
+        
+        left_status = ctk.CTkFrame(status_container, fg_color="transparent")
+        left_status.pack(side="left")
+        
         self.status_label = ctk.CTkLabel(
-            self.top_frame,
-            text="Status: Idle",
-            font=ctk.CTkFont(size=12)
+            left_status,
+            text="Ready",
+            font=ctk.CTkFont(size=16),
+            text_color=APPLE_TEXT_SECONDARY
         )
-        self.status_label.grid(row=0, column=1, padx=10, pady=10, sticky="w")
+        self.status_label.pack(side="left", padx=(0, 20))
         
-        # Settings button
-        self.settings_button = ctk.CTkButton(
-            self.top_frame,
-            text="⚙️ Settings",
-            command=self.open_settings,
-            width=100,
-            height=40
+        # Audio level indicator
+        audio_level_frame = ctk.CTkFrame(left_status, fg_color="transparent")
+        audio_level_frame.pack(side="left")
+        
+        ctk.CTkLabel(
+            audio_level_frame,
+            text="Audio Level:",
+            font=ctk.CTkFont(size=14),
+            text_color=APPLE_TEXT_SECONDARY
+        ).pack(side="left", padx=(0, 8))
+        
+        self.audio_level_label = ctk.CTkLabel(
+            audio_level_frame,
+            text="--",
+            font=ctk.CTkFont(size=14),
+            text_color=APPLE_TEXT_SECONDARY
         )
-        self.settings_button.grid(row=0, column=2, padx=10, pady=10)
+        self.audio_level_label.pack(side="left")
         
-        # Diagnose button
-        self.diagnose_button = ctk.CTkButton(
-            self.top_frame,
-            text="🔍 Diagnose",
-            command=self.run_diagnostic,
-            width=100,
-            height=40,
-            fg_color="gray",
-            hover_color="darkgray"
+        # Audio level bar
+        self.audio_level_bar = ctk.CTkProgressBar(
+            left_status,
+            width=150,
+            height=8,
+            corner_radius=4,
+            progress_color=APPLE_ACCENT
         )
-        self.diagnose_button.grid(row=0, column=3, padx=10, pady=10)
+        self.audio_level_bar.pack(side="left", padx=(15, 0))
+        self.audio_level_bar.set(0)
         
-        # Klaxon button (for Windows Sound Mixer detection)
-        self.klaxon_button = ctk.CTkButton(
-            self.top_frame,
-            text="🔊 Test Audio",
-            command=self.play_klaxon,
-            width=100,
-            height=40,
-            fg_color="orange",
-            hover_color="darkorange"
+        # Right side status - device info
+        right_status = ctk.CTkFrame(status_container, fg_color="transparent")
+        right_status.pack(side="right")
+        
+        self.device_label = ctk.CTkLabel(
+            right_status,
+            text="Device: Auto",
+            font=ctk.CTkFont(size=14),
+            text_color=APPLE_TEXT_SECONDARY
         )
-        self.klaxon_button.grid(row=0, column=4, padx=10, pady=10)
+        self.device_label.pack(side="right")
         
-        # Main content area (tabbed)
-        self.tabview = ctk.CTkTabview(self)
-        self.tabview.grid(row=1, column=0, sticky="nsew", padx=10, pady=(0, 10))
+        # Main content area with unified view
+        content_frame = ctk.CTkFrame(self, fg_color="transparent")
+        content_frame.grid(row=2, column=0, sticky="nsew", padx=50, pady=(0, 30))
+        content_frame.grid_columnconfigure(0, weight=1)
+        content_frame.grid_rowconfigure(0, weight=1)
         
-        # Transcription tab
-        self.transcription_tab = self.tabview.add("Transcription")
-        self.setup_transcription_tab()
-        
-        # Questions tab
-        self.questions_tab = self.tabview.add("Questions")
-        self.setup_questions_tab()
-        
-        # Answers tab
-        self.answers_tab = self.tabview.add("Answers")
-        self.setup_answers_tab()
-        
-        # Bottom status bar
-        self.bottom_frame = ctk.CTkFrame(self)
-        self.bottom_frame.grid(row=2, column=0, sticky="ew", padx=10, pady=(0, 10))
-        
-        self.ollama_status_label = ctk.CTkLabel(
-            self.bottom_frame,
-            text="Ollama: Checking...",
-            font=ctk.CTkFont(size=10)
-        )
-        self.ollama_status_label.pack(side="left", padx=10, pady=5)
-        
-        self.model_label = ctk.CTkLabel(
-            self.bottom_frame,
-            text=f"Models: Whisper {self.config.get('whisper_model', 'base')}, Ollama {self.config.get('ollama_model', 'llama3.2:3b')}",
-            font=ctk.CTkFont(size=10)
-        )
-        self.model_label.pack(side="right", padx=10, pady=5)
-    
-    def setup_transcription_tab(self):
-        """Setup transcription tab."""
-        self.transcription_tab.grid_columnconfigure(0, weight=1)
-        self.transcription_tab.grid_rowconfigure(0, weight=1)
-        
-        # Scrollable text area
-        self.transcription_text = ctk.CTkTextbox(
-            self.transcription_tab,
+        # Unified text view with sections
+        self.main_text = ctk.CTkTextbox(
+            content_frame,
             wrap="word",
-            font=ctk.CTkFont(size=12)
+            font=ctk.CTkFont(size=16, family="SF Pro Text"),
+            corner_radius=15,
+            border_width=0
         )
-        self.transcription_text.grid(row=0, column=0, sticky="nsew", padx=10, pady=10)
+        self.main_text.grid(row=0, column=0, sticky="nsew", padx=0, pady=0)
         
-        # Buttons frame
-        buttons_frame = ctk.CTkFrame(self.transcription_tab)
-        buttons_frame.grid(row=1, column=0, sticky="ew", padx=10, pady=(0, 10))
+        # Action buttons at bottom
+        actions_frame = ctk.CTkFrame(self, fg_color="transparent")
+        actions_frame.grid(row=3, column=0, sticky="ew", padx=50, pady=(0, 30))
         
-        ctk.CTkButton(
-            buttons_frame,
-            text="Clear",
-            command=self.clear_transcription,
-            width=100
-        ).pack(side="left", padx=5)
+        # Left side - Primary actions
+        primary_frame = ctk.CTkFrame(actions_frame, fg_color="transparent")
+        primary_frame.pack(side="left")
         
         ctk.CTkButton(
-            buttons_frame,
+            primary_frame,
             text="Answer Selected",
             command=self.answer_selected_text,
-            width=150
-        ).pack(side="left", padx=5)
+            width=170,
+            height=44,
+            font=ctk.CTkFont(size=15),
+            fg_color=APPLE_SECONDARY,
+            hover_color=APPLE_DIVIDER,
+            corner_radius=10
+        ).pack(side="left", padx=(0, 12))
         
         ctk.CTkButton(
-            buttons_frame,
+            primary_frame,
+            text="Summarize",
+            command=self.summarize_text,
+            width=140,
+            height=44,
+            font=ctk.CTkFont(size=15),
+            fg_color=APPLE_SECONDARY,
+            hover_color=APPLE_DIVIDER,
+            corner_radius=10
+        ).pack(side="left", padx=(0, 12))
+        
+        ctk.CTkButton(
+            primary_frame,
+            text="Translate",
+            command=self.translate_text,
+            width=130,
+            height=44,
+            font=ctk.CTkFont(size=15),
+            fg_color=APPLE_SECONDARY,
+            hover_color=APPLE_DIVIDER,
+            corner_radius=10
+        ).pack(side="left", padx=(0, 12))
+        
+        # Middle - File actions
+        file_frame = ctk.CTkFrame(actions_frame, fg_color="transparent")
+        file_frame.pack(side="left", padx=(30, 0))
+        
+        ctk.CTkButton(
+            file_frame,
+            text="Save",
+            command=self.save_session,
+            width=120,
+            height=44,
+            font=ctk.CTkFont(size=15),
+            fg_color=APPLE_SECONDARY,
+            hover_color=APPLE_DIVIDER,
+            corner_radius=10
+        ).pack(side="left", padx=(0, 12))
+        
+        ctk.CTkButton(
+            file_frame,
             text="Export",
             command=self.export_conversation,
-            width=100
-        ).pack(side="left", padx=5)
-    
-    def setup_questions_tab(self):
-        """Setup questions tab."""
-        self.questions_tab.grid_columnconfigure(0, weight=1)
-        self.questions_tab.grid_rowconfigure(0, weight=1)
-        
-        self.questions_text = ctk.CTkTextbox(
-            self.questions_tab,
-            wrap="word",
-            font=ctk.CTkFont(size=12)
-        )
-        self.questions_text.grid(row=0, column=0, sticky="nsew", padx=10, pady=10)
-        
-        buttons_frame = ctk.CTkFrame(self.questions_tab)
-        buttons_frame.grid(row=1, column=0, sticky="ew", padx=10, pady=(0, 10))
+            width=130,
+            height=44,
+            font=ctk.CTkFont(size=15),
+            fg_color=APPLE_SECONDARY,
+            hover_color=APPLE_DIVIDER,
+            corner_radius=10
+        ).pack(side="left", padx=(0, 12))
         
         ctk.CTkButton(
-            buttons_frame,
+            file_frame,
+            text="Copy All",
+            command=self.copy_all_text,
+            width=130,
+            height=44,
+            font=ctk.CTkFont(size=15),
+            fg_color=APPLE_SECONDARY,
+            hover_color=APPLE_DIVIDER,
+            corner_radius=10
+        ).pack(side="left", padx=(0, 12))
+        
+        ctk.CTkButton(
+            file_frame,
             text="Clear",
-            command=self.clear_questions,
-            width=100
-        ).pack(side="left", padx=5)
-    
-    def setup_answers_tab(self):
-        """Setup answers tab."""
-        self.answers_tab.grid_columnconfigure(0, weight=1)
-        self.answers_tab.grid_rowconfigure(0, weight=1)
+            command=self.clear_all,
+            width=110,
+            height=44,
+            font=ctk.CTkFont(size=15),
+            fg_color=APPLE_SECONDARY,
+            hover_color=APPLE_DIVIDER,
+            corner_radius=10
+        ).pack(side="left")
         
-        self.answers_text = ctk.CTkTextbox(
-            self.answers_tab,
-            wrap="word",
-            font=ctk.CTkFont(size=12)
+        # Right side - Settings and tools
+        tools_frame = ctk.CTkFrame(actions_frame, fg_color="transparent")
+        tools_frame.pack(side="right")
+        
+        ctk.CTkButton(
+            tools_frame,
+            text="Audio Settings",
+            command=self.open_audio_settings,
+            width=160,
+            height=44,
+            font=ctk.CTkFont(size=15),
+            fg_color=APPLE_SECONDARY,
+            hover_color=APPLE_DIVIDER,
+            corner_radius=10
+        ).pack(side="left", padx=(0, 12))
+        
+        ctk.CTkButton(
+            tools_frame,
+            text="Settings",
+            command=self.open_settings,
+            width=130,
+            height=44,
+            font=ctk.CTkFont(size=15),
+            fg_color=APPLE_SECONDARY,
+            hover_color=APPLE_DIVIDER,
+            corner_radius=10
+        ).pack(side="left")
+        
+        # Bottom status bar - minimal
+        bottom_frame = ctk.CTkFrame(self, fg_color="transparent", height=40)
+        bottom_frame.grid(row=4, column=0, sticky="ew", padx=50, pady=(0, 30))
+        bottom_frame.grid_columnconfigure(0, weight=1)
+        
+        self.ollama_status_label = ctk.CTkLabel(
+            bottom_frame,
+            text="Checking connection...",
+            font=ctk.CTkFont(size=13),
+            text_color=APPLE_TEXT_SECONDARY
         )
-        self.answers_text.grid(row=0, column=0, sticky="nsew", padx=10, pady=10)
+        self.ollama_status_label.grid(row=0, column=0, sticky="w")
         
-        buttons_frame = ctk.CTkFrame(self.answers_tab)
-        buttons_frame.grid(row=1, column=0, sticky="ew", padx=10, pady=(0, 10))
+        self.model_label = ctk.CTkLabel(
+            bottom_frame,
+            text="",
+            font=ctk.CTkFont(size=13),
+            text_color=APPLE_TEXT_SECONDARY
+        )
+        self.model_label.grid(row=0, column=1, sticky="e")
         
-        ctk.CTkButton(
-            buttons_frame,
-            text="Copy Last Answer",
-            command=self.copy_last_answer,
-            width=150
-        ).pack(side="left", padx=5)
-        
-        ctk.CTkButton(
-            buttons_frame,
-            text="Clear",
-            command=self.clear_answers,
-            width=100
-        ).pack(side="left", padx=5)
+        # Store references for unified view
+        self.transcription_buffer = []
+        self.questions_buffer = []
+        self.answers_buffer = []
+        self.recording_start_time = None
+        self.update_recording_timer()
+    
     
     def setup_system_tray(self):
         """Setup system tray icon."""
@@ -345,15 +508,15 @@ class TranscriptionApp(ctk.CTk):
             image = Image.new('RGB', (64, 64), color='black')
             draw = ImageDraw.Draw(image)
             draw.ellipse([16, 16, 48, 48], fill='blue', outline='white')
-            
+        
             menu = pystray.Menu(
-                pystray.MenuItem("Show", self.show_window),
-                pystray.MenuItem("Hide", self.hide_window),
-                pystray.MenuItem("Quit", self.quit_app)
+            pystray.MenuItem("Show", self.show_window),
+            pystray.MenuItem("Hide", self.hide_window),
+            pystray.MenuItem("Quit", self.quit_app)
             )
-            
+        
             self.tray_icon = pystray.Icon("TranscriptionApp", image, "Audio Transcription", menu)
-            
+        
             # Start tray in separate thread with better error handling
             def run_tray_safely():
                 try:
@@ -400,14 +563,17 @@ class TranscriptionApp(ctk.CTk):
         
         if self.answer_generator.check_ollama_running():
             if self.answer_generator.check_model_available():
-                self.ollama_status_label.configure(text="Ollama: Running ✓", text_color="green")
+                self.ollama_status_label.configure(text="Connected", text_color=APPLE_ACCENT)
+                model_name = self.config.get('ollama_model', 'llama3.2:3b')
+                whisper_model = self.config.get('whisper_model', 'base')
+                self.model_label.configure(text=f"{whisper_model} • {model_name}")
             else:
                 self.ollama_status_label.configure(
-                    text=f"Ollama: Running (Model {self.config.get('ollama_model')} not found)",
-                    text_color="orange"
+                    text=f"Model {self.config.get('ollama_model')} not found",
+                    text_color="#ff9500"
                 )
         else:
-            self.ollama_status_label.configure(text="Ollama: Not Running ✗", text_color="red")
+            self.ollama_status_label.configure(text="Not connected", text_color=APPLE_TEXT_SECONDARY)
     
     def toggle_recording(self):
         """Start or stop recording."""
@@ -444,10 +610,23 @@ class TranscriptionApp(ctk.CTk):
             
             self.audio_capture.start()
             self.is_recording = True
+            self.recording_start_time = datetime.now()
             
             # Update UI
-            self.record_button.configure(text="Stop Recording", fg_color="red", hover_color="darkred")
-            self.status_label.configure(text="Status: Recording...", text_color="green")
+            self.record_button.configure(
+                text="Stop Recording", 
+                fg_color=APPLE_RED, 
+                hover_color=APPLE_RED_HOVER
+            )
+            self.status_label.configure(text="Recording", text_color=APPLE_ACCENT)
+            
+            # Update device label
+            devices = sd.query_devices()
+            if audio_device is not None and audio_device < len(devices):
+                device_name = devices[audio_device]['name']
+                self.device_label.configure(text=f"Device: {device_name[:30]}")
+            else:
+                self.device_label.configure(text="Device: Auto")
             
             logger.info("Recording started")
             
@@ -497,17 +676,20 @@ class TranscriptionApp(ctk.CTk):
                 self.audio_capture = None
         
         self.is_recording = False
+        self.recording_start_time = None
         
         # Update UI (use after() to ensure it happens in main thread)
         self.after(0, lambda: self.record_button.configure(
             text="Start Recording", 
-            fg_color=None, 
-            hover_color=None
+            fg_color=APPLE_ACCENT, 
+            hover_color=APPLE_ACCENT_HOVER
         ))
         self.after(0, lambda: self.status_label.configure(
-            text="Status: Idle", 
-            text_color="gray"
+            text="Ready", 
+            text_color=APPLE_TEXT_SECONDARY
         ))
+        self.after(0, lambda: self.audio_level_bar.set(0))
+        self.after(0, lambda: self.audio_level_label.configure(text="--"))
         
         logger.info("Recording stopped")
     
@@ -522,6 +704,10 @@ class TranscriptionApp(ctk.CTk):
         
         # Check if audio has actual content (not silence)
         audio_level = np.abs(audio_data).mean() if hasattr(audio_data, 'mean') else 0
+        
+        # Update audio level indicator
+        self.after(0, lambda: self.update_audio_level(audio_level))
+        
         if audio_level < 0.001:  # Very quiet, likely silence
             logger.debug(f"Skipping silent audio chunk (level: {audio_level:.6f})")
             return
@@ -624,27 +810,62 @@ class TranscriptionApp(ctk.CTk):
         self.after(100, self.process_messages)
     
     def append_transcription(self, text: str):
-        """Append text to transcription view."""
-        timestamp = datetime.now().strftime("%H:%M:%S")
-        self.transcription_text.insert("end", f"[{timestamp}] {text}\n")
-        self.transcription_text.see("end")
+        """Append text to unified view."""
+        timestamp = datetime.now().strftime("%H:%M")
+        self.transcription_buffer.append((timestamp, text))
+        self._update_main_view()
+        self._update_stats()
     
     def append_question(self, question: str, confidence: float):
-        """Append question to questions view."""
-        timestamp = datetime.now().strftime("%H:%M:%S")
-        conf_text = f"({confidence:.0%})" if confidence < 1.0 else ""
-        self.questions_text.insert("end", f"[{timestamp}] {conf_text} {question}\n")
-        self.questions_text.see("end")
-        
-        # Show notification
-        self.show_notification("Question detected!")
+        """Append question to unified view."""
+        timestamp = datetime.now().strftime("%H:%M")
+        self.questions_buffer.append((timestamp, question, confidence))
+        self._update_main_view()
+        self._update_stats()
     
     def append_answer(self, question: str, answer: str):
-        """Append answer to answers view."""
-        timestamp = datetime.now().strftime("%H:%M:%S")
-        self.answers_text.insert("end", f"[{timestamp}] Q: {question}\n")
-        self.answers_text.insert("end", f"A: {answer}\n\n")
-        self.answers_text.see("end")
+        """Append answer to unified view."""
+        timestamp = datetime.now().strftime("%H:%M")
+        self.answers_buffer.append((timestamp, question, answer))
+        self._update_main_view()
+        self._update_stats()
+    
+    def _update_main_view(self):
+        """Update the unified main text view."""
+        self.main_text.delete("1.0", "end")
+        
+        # Build unified content
+        content = []
+        
+        # Show recent transcriptions
+        if self.transcription_buffer:
+            content.append("Transcription\n")
+            content.append("─" * 50 + "\n\n")
+            for timestamp, text in self.transcription_buffer[-10:]:
+                content.append(f"{text}\n")
+            content.append("\n")
+        
+        # Show questions
+        if self.questions_buffer:
+            content.append("Questions\n")
+            content.append("─" * 50 + "\n\n")
+            for timestamp, question, confidence in self.questions_buffer[-5:]:
+                content.append(f"{question}\n")
+            content.append("\n")
+        
+        # Show answers
+        if self.answers_buffer:
+            content.append("Answers\n")
+            content.append("─" * 50 + "\n\n")
+            for timestamp, question, answer in self.answers_buffer[-5:]:
+                content.append(f"Q: {question}\n")
+                content.append(f"A: {answer}\n\n")
+        
+        if not content:
+            content.append("Start recording to see transcriptions here.\n")
+        
+        self.main_text.insert("1.0", "".join(content))
+        self.main_text.see("end")
     
     def generate_answer_async(self, question: str):
         """Generate answer asynchronously."""
@@ -667,48 +888,121 @@ class TranscriptionApp(ctk.CTk):
     def answer_selected_text(self):
         """Answer selected text manually."""
         try:
-            selected = self.transcription_text.selection_get()
+            selected = self.main_text.selection_get()
             if selected and self.answer_generator:
                 self.generate_answer_async(selected.strip())
-                self.status_label.configure(text="Status: Generating answer...", text_color="blue")
+                self.status_label.configure(text="Generating answer...", text_color=APPLE_ACCENT)
         except:
             messagebox.showwarning("No Selection", "Please select some text first.")
     
-    def copy_last_answer(self):
-        """Copy last answer to clipboard."""
-        try:
-            content = self.answers_text.get("1.0", "end-1c")
-            if content:
-                # Get last answer block
-                lines = content.strip().split("\n")
-                last_answer = ""
-                for line in reversed(lines):
-                    if line.startswith("A: "):
-                        last_answer = line[3:]
-                        break
-                
-                if last_answer:
-                    self.clipboard_clear()
-                    self.clipboard_append(last_answer)
-                    self.show_notification("Answer copied to clipboard!")
-                else:
-                    messagebox.showinfo("No Answer", "No answer found to copy.")
-        except Exception as e:
-            logger.error(f"Error copying answer: {e}")
-    
-    def clear_transcription(self):
-        """Clear transcription view."""
-        self.transcription_text.delete("1.0", "end")
+    def clear_all(self):
+        """Clear all content."""
+        self.transcription_buffer.clear()
+        self.questions_buffer.clear()
+        self.answers_buffer.clear()
+        self.main_text.delete("1.0", "end")
         if self.transcription_engine:
             self.transcription_engine.clear_buffer()
+        self._update_stats()
     
-    def clear_questions(self):
-        """Clear questions view."""
-        self.questions_text.delete("1.0", "end")
+    def _update_stats(self):
+        """Update statistics display."""
+        trans_count = len(self.transcription_buffer)
+        quest_count = len(self.questions_buffer)
+        ans_count = len(self.answers_buffer)
+        self.stats_label.configure(
+            text=f"{trans_count} transcriptions • {quest_count} questions • {ans_count} answers"
+        )
     
-    def clear_answers(self):
-        """Clear answers view."""
-        self.answers_text.delete("1.0", "end")
+    def update_recording_timer(self):
+        """Update recording time display."""
+        if self.is_recording and self.recording_start_time:
+            elapsed = datetime.now() - self.recording_start_time
+            minutes = int(elapsed.total_seconds() // 60)
+            seconds = int(elapsed.total_seconds() % 60)
+            self.recording_time_label.configure(text=f"Recording: {minutes:02d}:{seconds:02d}")
+        else:
+            self.recording_time_label.configure(text="")
+        self.after(1000, self.update_recording_timer)
+    
+    def update_audio_level(self, level: float):
+        """Update audio level indicator."""
+        normalized_level = min(level * 10, 1.0)  # Scale for visibility
+        self.audio_level_bar.set(normalized_level)
+        if level > 0.001:
+            self.audio_level_label.configure(text=f"{level:.3f}")
+        else:
+            self.audio_level_label.configure(text="--")
+    
+    def new_session(self):
+        """Start a new session."""
+        if messagebox.askyesno("New Session", "Start a new session? Current data will be cleared."):
+            self.clear_all()
+            self.recording_start_time = None
+    
+    def show_history(self):
+        """Show session history."""
+        messagebox.showinfo("History", "Session history feature coming soon.")
+    
+    def show_help(self):
+        """Show help dialog."""
+        help_text = """Audio Transcription Help
+
+Keyboard Shortcuts:
+• Ctrl+Shift+A: Show/Hide window
+• Space: Start/Stop recording (when focused)
+
+Features:
+• Real-time audio transcription
+• Automatic question detection
+• AI-powered answers
+• Export and save sessions
+
+For more information, visit the documentation."""
+        messagebox.showinfo("Help", help_text)
+    
+    def summarize_text(self):
+        """Summarize selected text."""
+        try:
+            selected = self.main_text.selection_get()
+            if selected:
+                messagebox.showinfo("Summarize", "Text summarization feature coming soon.")
+            else:
+                messagebox.showwarning("No Selection", "Please select some text first.")
+        except:
+            messagebox.showwarning("No Selection", "Please select some text first.")
+    
+    def translate_text(self):
+        """Translate selected text."""
+        try:
+            selected = self.main_text.selection_get()
+            if selected:
+                messagebox.showinfo("Translate", "Translation feature coming soon.")
+            else:
+                messagebox.showwarning("No Selection", "Please select some text first.")
+        except:
+            messagebox.showwarning("No Selection", "Please select some text first.")
+    
+    def save_session(self):
+        """Save current session."""
+        if not self.transcription_buffer and not self.questions_buffer and not self.answers_buffer:
+            messagebox.showinfo("Save", "No content to save.")
+            return
+        messagebox.showinfo("Save", "Session save feature coming soon.")
+    
+    def copy_all_text(self):
+        """Copy all text to clipboard."""
+        content = self.main_text.get("1.0", "end-1c")
+        if content:
+            self.clipboard_clear()
+            self.clipboard_append(content)
+            messagebox.showinfo("Copied", "All text copied to clipboard.")
+        else:
+            messagebox.showinfo("Copy", "No content to copy.")
+    
+    def open_audio_settings(self):
+        """Open audio settings dialog."""
+        messagebox.showinfo("Audio Settings", "Audio device selection and configuration coming soon.")
     
     def export_conversation(self):
         """Export conversation to file."""
@@ -720,12 +1014,18 @@ class TranscriptionApp(ctk.CTk):
             
             if filename:
                 with open(filename, 'w', encoding='utf-8') as f:
-                    f.write("=== TRANSCRIPTION ===\n")
-                    f.write(self.transcription_text.get("1.0", "end-1c"))
-                    f.write("\n\n=== QUESTIONS ===\n")
-                    f.write(self.questions_text.get("1.0", "end-1c"))
-                    f.write("\n\n=== ANSWERS ===\n")
-                    f.write(self.answers_text.get("1.0", "end-1c"))
+                    f.write("=== TRANSCRIPTION ===\n\n")
+                    for timestamp, text in self.transcription_buffer:
+                        f.write(f"[{timestamp}] {text}\n")
+                    
+                    f.write("\n\n=== QUESTIONS ===\n\n")
+                    for timestamp, question, confidence in self.questions_buffer:
+                        f.write(f"[{timestamp}] {question}\n")
+                    
+                    f.write("\n\n=== ANSWERS ===\n\n")
+                    for timestamp, question, answer in self.answers_buffer:
+                        f.write(f"[{timestamp}] Q: {question}\n")
+                        f.write(f"A: {answer}\n\n")
                 
                 messagebox.showinfo("Export", f"Conversation exported to {filename}")
         except Exception as e:
@@ -735,50 +1035,6 @@ class TranscriptionApp(ctk.CTk):
     def open_settings(self):
         """Open settings window."""
         SettingsWindow(self, self.config, self.on_settings_saved)
-    
-    def run_diagnostic(self):
-        """Run audio diagnostic tool."""
-        import subprocess
-        import sys
-        
-        try:
-            # Run the diagnostic script
-            result = subprocess.run(
-                [sys.executable, "diagnose_audio.py"],
-                capture_output=True,
-                text=True,
-                timeout=30
-            )
-            
-            # Show results in a dialog
-            output = result.stdout
-            if result.stderr:
-                output += f"\n\nErrors:\n{result.stderr}"
-            
-            # Create a scrollable text window
-            dialog = ctk.CTkToplevel(self)
-            dialog.title("Audio Diagnostic Results")
-            dialog.geometry("700x500")
-            dialog.transient(self)
-            
-            text_widget = ctk.CTkTextbox(dialog, wrap="word", font=ctk.CTkFont(family="Courier", size=10))
-            text_widget.pack(fill="both", expand=True, padx=10, pady=10)
-            text_widget.insert("1.0", output)
-            text_widget.configure(state="disabled")
-            
-            ctk.CTkButton(
-                dialog,
-                text="Close",
-                command=dialog.destroy,
-                width=100
-            ).pack(pady=10)
-            
-        except subprocess.TimeoutExpired:
-            messagebox.showerror("Error", "Diagnostic tool timed out.")
-        except FileNotFoundError:
-            messagebox.showerror("Error", "diagnose_audio.py not found. Please run it manually from the command line.")
-        except Exception as e:
-            messagebox.showerror("Error", f"Failed to run diagnostic:\n{str(e)}")
     
     def play_klaxon(self):
         """Play a goofy klaxon sound to register with Windows Sound Mixer."""
@@ -846,10 +1102,6 @@ class TranscriptionApp(ctk.CTk):
         # Play in a separate thread to avoid blocking UI
         threading.Thread(target=generate_klaxon_sound, daemon=True).start()
         
-        # Update button text temporarily
-        original_text = self.klaxon_button.cget("text")
-        self.klaxon_button.configure(text="🔊 Playing...", state="disabled")
-        self.after(2000, lambda: self.klaxon_button.configure(text=original_text, state="normal"))
     
     def on_settings_saved(self, new_config: dict):
         """Handle settings save."""
@@ -864,9 +1116,9 @@ class TranscriptionApp(ctk.CTk):
             self.answer_generator.set_model(self.config.get("ollama_model", "llama3.2:3b"))
         
         self.auto_answer = self.config.get("auto_answer", True)
-        self.model_label.configure(
-            text=f"Models: Whisper {self.config.get('whisper_model', 'base')}, Ollama {self.config.get('ollama_model', 'llama3.2:3b')}"
-        )
+        model_name = self.config.get('ollama_model', 'llama3.2:3b')
+        whisper_model = self.config.get('whisper_model', 'base')
+        self.model_label.configure(text=f"{whisper_model} • {model_name}")
         
         self.check_ollama_status()
     
@@ -920,84 +1172,283 @@ class SettingsWindow(ctk.CTkToplevel):
         self.callback = callback
         
         self.title("Settings")
-        self.geometry("500x600")
+        self.geometry("520x750")
         self.transient(parent)
         self.grab_set()
         
+        # Header
+        header = ctk.CTkFrame(self, fg_color="transparent")
+        header.pack(fill="x", padx=30, pady=(30, 20))
+        
+        title = ctk.CTkLabel(
+            header,
+            text="Settings",
+            font=ctk.CTkFont(size=24, weight="normal")
+        )
+        title.pack(anchor="w")
+        
         # Main frame
         main_frame = ctk.CTkScrollableFrame(self)
-        main_frame.pack(fill="both", expand=True, padx=20, pady=20)
+        main_frame.pack(fill="both", expand=True, padx=30, pady=(0, 20))
+        
+        # Section: Models
+        section_label = ctk.CTkLabel(
+            main_frame,
+            text="Models",
+            font=ctk.CTkFont(size=13, weight="normal"),
+            text_color=APPLE_TEXT_SECONDARY
+        )
+        section_label.pack(anchor="w", pady=(10, 15))
         
         # Whisper model
-        ctk.CTkLabel(main_frame, text="Whisper Model:", font=ctk.CTkFont(size=12, weight="bold")).pack(anchor="w", pady=(10, 5))
+        ctk.CTkLabel(
+            main_frame,
+            text="Whisper Model",
+            font=ctk.CTkFont(size=14)
+        ).pack(anchor="w", pady=(0, 8))
+        
         self.whisper_model_var = ctk.StringVar(value=config.get("whisper_model", "base"))
-        ctk.CTkOptionMenu(
+        whisper_menu = ctk.CTkOptionMenu(
             main_frame,
             values=["tiny", "base", "small", "medium", "large"],
-            variable=self.whisper_model_var
-        ).pack(fill="x", pady=5)
+            variable=self.whisper_model_var,
+            width=200,
+            height=36,
+            corner_radius=8,
+            fg_color=APPLE_SECONDARY,
+            button_color=APPLE_SECONDARY,
+            button_hover_color=APPLE_DIVIDER
+        )
+        whisper_menu.pack(anchor="w", pady=(0, 20))
         
         # Ollama model
-        ctk.CTkLabel(main_frame, text="Ollama Model:", font=ctk.CTkFont(size=12, weight="bold")).pack(anchor="w", pady=(10, 5))
+        ctk.CTkLabel(
+            main_frame,
+            text="Ollama Model",
+            font=ctk.CTkFont(size=14)
+        ).pack(anchor="w", pady=(0, 8))
+        
         self.ollama_model_var = ctk.StringVar(value=config.get("ollama_model", "llama3.2:3b"))
-        ollama_entry = ctk.CTkEntry(main_frame, textvariable=self.ollama_model_var)
-        ollama_entry.pack(fill="x", pady=5)
+        ollama_entry = ctk.CTkEntry(
+            main_frame,
+            textvariable=self.ollama_model_var,
+            width=200,
+            height=36,
+            corner_radius=8,
+            border_width=0,
+            fg_color=APPLE_SECONDARY
+        )
+        ollama_entry.pack(anchor="w", pady=(0, 30))
+        
+        # Section: Behavior
+        section_label2 = ctk.CTkLabel(
+            main_frame,
+            text="Behavior",
+            font=ctk.CTkFont(size=13, weight="normal"),
+            text_color=APPLE_TEXT_SECONDARY
+        )
+        section_label2.pack(anchor="w", pady=(10, 15))
         
         # Auto-answer
         self.auto_answer_var = ctk.BooleanVar(value=config.get("auto_answer", True))
         ctk.CTkCheckBox(
             main_frame,
-            text="Auto-answer detected questions",
-            variable=self.auto_answer_var
-        ).pack(anchor="w", pady=10)
+            text="Automatically answer detected questions",
+            variable=self.auto_answer_var,
+            font=ctk.CTkFont(size=14),
+            corner_radius=6
+        ).pack(anchor="w", pady=(0, 30))
         
         # Detection sensitivity
-        ctk.CTkLabel(main_frame, text="Question Detection Sensitivity:", font=ctk.CTkFont(size=12, weight="bold")).pack(anchor="w", pady=(10, 5))
+        sensitivity_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
+        sensitivity_frame.pack(fill="x", pady=(0, 8))
+        
+        ctk.CTkLabel(
+            sensitivity_frame,
+            text="Question Detection Sensitivity",
+            font=ctk.CTkFont(size=14)
+        ).pack(anchor="w")
+        
+        slider_frame = ctk.CTkFrame(sensitivity_frame, fg_color="transparent")
+        slider_frame.pack(fill="x", pady=(8, 0))
+        
         self.sensitivity_var = ctk.DoubleVar(value=config.get("detection_sensitivity", 0.7))
         sensitivity_slider = ctk.CTkSlider(
-            main_frame,
+            slider_frame,
             from_=0.0,
             to=1.0,
             variable=self.sensitivity_var,
-            number_of_steps=10
+            number_of_steps=10,
+            width=200
         )
-        sensitivity_slider.pack(fill="x", pady=5)
-        self.sensitivity_label = ctk.CTkLabel(main_frame, text=f"{self.sensitivity_var.get():.1f}")
-        self.sensitivity_label.pack(anchor="w")
+        sensitivity_slider.pack(side="left", padx=(0, 10))
+        
+        self.sensitivity_label = ctk.CTkLabel(
+            slider_frame,
+            text=f"{self.sensitivity_var.get():.1f}",
+            font=ctk.CTkFont(size=13),
+            text_color=APPLE_TEXT_SECONDARY,
+            width=40
+        )
+        self.sensitivity_label.pack(side="left")
         sensitivity_slider.configure(command=lambda v: self.sensitivity_label.configure(text=f"{v:.1f}"))
         
         # Context exchanges
-        ctk.CTkLabel(main_frame, text="Conversation Context (exchanges):", font=ctk.CTkFont(size=12, weight="bold")).pack(anchor="w", pady=(10, 5))
+        context_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
+        context_frame.pack(fill="x", pady=(20, 0))
+        
+        ctk.CTkLabel(
+            context_frame,
+            text="Conversation Context",
+            font=ctk.CTkFont(size=14)
+        ).pack(anchor="w")
+        
+        slider_frame2 = ctk.CTkFrame(context_frame, fg_color="transparent")
+        slider_frame2.pack(fill="x", pady=(8, 0))
+        
         self.context_var = ctk.IntVar(value=config.get("conversation_context_exchanges", 3))
         context_slider = ctk.CTkSlider(
-            main_frame,
+            slider_frame2,
             from_=1,
             to=10,
             variable=self.context_var,
-            number_of_steps=9
+            number_of_steps=9,
+            width=200
         )
-        context_slider.pack(fill="x", pady=5)
-        self.context_label = ctk.CTkLabel(main_frame, text=str(self.context_var.get()))
-        self.context_label.pack(anchor="w")
+        context_slider.pack(side="left", padx=(0, 10))
+        
+        self.context_label = ctk.CTkLabel(
+            slider_frame2,
+            text=str(self.context_var.get()),
+            font=ctk.CTkFont(size=13),
+            text_color=APPLE_TEXT_SECONDARY,
+            width=40
+        )
+        self.context_label.pack(side="left")
         context_slider.configure(command=lambda v: self.context_label.configure(text=str(int(v))))
         
-        # Buttons
-        buttons_frame = ctk.CTkFrame(main_frame)
-        buttons_frame.pack(fill="x", pady=20)
+        # Section: Advanced
+        section_label3 = ctk.CTkLabel(
+            main_frame,
+            text="Advanced",
+            font=ctk.CTkFont(size=13, weight="normal"),
+            text_color=APPLE_TEXT_SECONDARY
+        )
+        section_label3.pack(anchor="w", pady=(30, 15))
         
-        ctk.CTkButton(
-            buttons_frame,
-            text="Save",
-            command=self.save_settings,
-            width=120
-        ).pack(side="left", padx=5, expand=True)
+        # Language selection
+        ctk.CTkLabel(
+            main_frame,
+            text="Transcription Language",
+            font=ctk.CTkFont(size=14)
+        ).pack(anchor="w", pady=(0, 8))
+        
+        self.language_var = ctk.StringVar(value=config.get("transcription_language", "auto"))
+        language_menu = ctk.CTkOptionMenu(
+            main_frame,
+            values=["auto", "en", "fr", "es", "de", "it", "pt", "ja", "zh"],
+            variable=self.language_var,
+            width=200,
+            height=36,
+            corner_radius=8,
+            fg_color=APPLE_SECONDARY,
+            button_color=APPLE_SECONDARY,
+            button_hover_color=APPLE_DIVIDER
+        )
+        language_menu.pack(anchor="w", pady=(0, 20))
+        
+        # Audio chunk duration
+        chunk_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
+        chunk_frame.pack(fill="x", pady=(0, 8))
+        
+        ctk.CTkLabel(
+            chunk_frame,
+            text="Audio Chunk Duration (seconds)",
+            font=ctk.CTkFont(size=14)
+        ).pack(anchor="w")
+        
+        slider_frame3 = ctk.CTkFrame(chunk_frame, fg_color="transparent")
+        slider_frame3.pack(fill="x", pady=(8, 0))
+        
+        self.chunk_duration_var = ctk.DoubleVar(value=config.get("audio_chunk_duration_seconds", 3.0))
+        chunk_slider = ctk.CTkSlider(
+            slider_frame3,
+            from_=1.0,
+            to=10.0,
+            variable=self.chunk_duration_var,
+            number_of_steps=18,
+            width=200
+        )
+        chunk_slider.pack(side="left", padx=(0, 10))
+        
+        self.chunk_duration_label = ctk.CTkLabel(
+            slider_frame3,
+            text=f"{self.chunk_duration_var.get():.1f}s",
+            font=ctk.CTkFont(size=13),
+            text_color=APPLE_TEXT_SECONDARY,
+            width=50
+        )
+        self.chunk_duration_label.pack(side="left")
+        chunk_slider.configure(command=lambda v: self.chunk_duration_label.configure(text=f"{v:.1f}s"))
+        
+        # Additional options
+        options_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
+        options_frame.pack(fill="x", pady=(20, 0))
+        
+        self.show_timestamps_var = ctk.BooleanVar(value=config.get("show_timestamps", True))
+        ctk.CTkCheckBox(
+            options_frame,
+            text="Show timestamps in transcriptions",
+            variable=self.show_timestamps_var,
+            font=ctk.CTkFont(size=14),
+            corner_radius=6
+        ).pack(anchor="w", pady=(0, 10))
+        
+        self.auto_save_var = ctk.BooleanVar(value=config.get("auto_save", False))
+        ctk.CTkCheckBox(
+            options_frame,
+            text="Auto-save sessions",
+            variable=self.auto_save_var,
+            font=ctk.CTkFont(size=14),
+            corner_radius=6
+        ).pack(anchor="w", pady=(0, 10))
+        
+        self.notifications_var = ctk.BooleanVar(value=config.get("show_notifications", True))
+        ctk.CTkCheckBox(
+            options_frame,
+            text="Show notifications for questions",
+            variable=self.notifications_var,
+            font=ctk.CTkFont(size=14),
+            corner_radius=6
+        ).pack(anchor="w")
+        
+        # Buttons
+        buttons_frame = ctk.CTkFrame(self, fg_color="transparent")
+        buttons_frame.pack(fill="x", padx=30, pady=(0, 30))
         
         ctk.CTkButton(
             buttons_frame,
             text="Cancel",
             command=self.destroy,
-            width=120
-        ).pack(side="left", padx=5, expand=True)
+            width=120,
+            height=40,
+            font=ctk.CTkFont(size=14),
+            fg_color=APPLE_SECONDARY,
+            hover_color=APPLE_DIVIDER,
+            corner_radius=10
+        ).pack(side="left", padx=(0, 10))
+        
+        ctk.CTkButton(
+            buttons_frame,
+            text="Save",
+            command=self.save_settings,
+            width=120,
+            height=40,
+            font=ctk.CTkFont(size=14),
+            fg_color=APPLE_ACCENT,
+            hover_color=APPLE_ACCENT_HOVER,
+            corner_radius=10
+        ).pack(side="left")
     
     def save_settings(self):
         """Save settings."""
@@ -1006,6 +1457,11 @@ class SettingsWindow(ctk.CTkToplevel):
         self.config["auto_answer"] = self.auto_answer_var.get()
         self.config["detection_sensitivity"] = self.sensitivity_var.get()
         self.config["conversation_context_exchanges"] = self.context_var.get()
+        self.config["transcription_language"] = self.language_var.get()
+        self.config["audio_chunk_duration_seconds"] = self.chunk_duration_var.get()
+        self.config["show_timestamps"] = self.show_timestamps_var.get()
+        self.config["auto_save"] = self.auto_save_var.get()
+        self.config["show_notifications"] = self.notifications_var.get()
         
         self.callback(self.config)
         self.destroy()
@@ -1015,7 +1471,7 @@ if __name__ == "__main__":
     import traceback
     try:
         app = TranscriptionApp()
-        app.mainloop()
+    app.mainloop()
     except KeyboardInterrupt:
         print("\nApplication interrupted by user")
         sys.exit(0)
